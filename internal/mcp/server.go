@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/wcollani/mcp-go-template/internal/provider"
@@ -124,58 +125,71 @@ func (s *Server) Providers() []provider.Provider {
 }
 
 // Run starts the MCP server. Transport is selected via the MCP_TRANSPORT env var:
-//   - "sse" — Streamable HTTP on PORT (default 8080)
-//   - anything else — stdio (default, works with Claude Desktop and most MCP clients)
+//   - "http" — Streamable HTTP on PORT (default 8080); spec-compliant, recommended
+//   - "sse"  — Legacy SSE on PORT (default 8080); for clients that don't yet support Streamable HTTP
+//   - default — stdio (works with Claude Desktop and most MCP clients)
 func (s *Server) Run(ctx context.Context) error {
 	transport := os.Getenv("MCP_TRANSPORT")
-	if transport == "sse" {
-		port := os.Getenv("PORT")
-		if port == "" {
-			port = "8080"
-		}
 
-		mcpHandler := mcp.NewSSEHandler(func(req *http.Request) *mcp.Server {
-			return s.mcpServer
-		}, &mcp.SSEOptions{})
-
-		bearerToken := os.Getenv("MCP_BEARER_TOKEN")
-		// Restrict CORS to a specific origin in production via CORS_ALLOW_ORIGIN env var.
-		corsOrigin := os.Getenv("CORS_ALLOW_ORIGIN")
-		if corsOrigin == "" {
-			corsOrigin = "http://localhost:3000"
-		}
-
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if bearerToken != "" && r.Method != "OPTIONS" {
-				if r.Header.Get("Authorization") != "Bearer "+bearerToken {
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
-				}
-			}
-			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version")
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			mcpHandler.ServeHTTP(w, r)
-		})
-
-		srv := &http.Server{Addr: ":" + port, Handler: handler}
-		go func() {
-			<-ctx.Done()
-			if err := srv.Shutdown(context.Background()); err != nil {
-				slog.Error("SSE server shutdown error", "err", err)
-			}
-		}()
-		slog.Info("Starting MCP server via SSE", "port", port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			return err
-		}
-		return nil
+	if transport != "http" && transport != "sse" {
+		slog.Info("Starting MCP server via stdio")
+		return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 	}
 
-	slog.Info("Starting MCP server via stdio")
-	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	var mcpHandler http.Handler
+	switch transport {
+	case "http":
+		mcpHandler = mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+			return s.mcpServer
+		}, &mcp.StreamableHTTPOptions{
+			SessionTimeout: 30 * time.Minute,
+		})
+		slog.Info("Starting MCP server via Streamable HTTP", "port", port)
+	default: // "sse" — legacy
+		mcpHandler = mcp.NewSSEHandler(func(req *http.Request) *mcp.Server {
+			return s.mcpServer
+		}, &mcp.SSEOptions{})
+		slog.Info("Starting MCP server via SSE (legacy)", "port", port)
+	}
+
+	bearerToken := os.Getenv("MCP_BEARER_TOKEN")
+	// Restrict CORS to a specific origin in production via CORS_ALLOW_ORIGIN env var.
+	corsOrigin := os.Getenv("CORS_ALLOW_ORIGIN")
+	if corsOrigin == "" {
+		corsOrigin = "http://localhost:3000"
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bearerToken != "" && r.Method != "OPTIONS" {
+			if r.Header.Get("Authorization") != "Bearer "+bearerToken {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		mcpHandler.ServeHTTP(w, r)
+	})
+
+	srv := &http.Server{Addr: ":" + port, Handler: handler}
+	go func() {
+		<-ctx.Done()
+		if err := srv.Shutdown(context.Background()); err != nil {
+			slog.Error("HTTP server shutdown error", "err", err)
+		}
+	}()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
