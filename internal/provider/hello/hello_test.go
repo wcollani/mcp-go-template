@@ -1,6 +1,7 @@
 package hello
 
 import (
+	"context"
 	"testing"
 )
 
@@ -27,7 +28,7 @@ func TestProvider_GetResources(t *testing.T) {
 
 func TestProvider_GetResourceContent(t *testing.T) {
 	p := &Provider{}
-	content, err := p.GetResourceContent("hello://world")
+	content, err := p.GetResourceContent(context.Background(), "hello://world")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +36,7 @@ func TestProvider_GetResourceContent(t *testing.T) {
 		t.Error("expected non-empty content")
 	}
 
-	_, err = p.GetResourceContent("unknown://resource")
+	_, err = p.GetResourceContent(context.Background(), "unknown://resource")
 	if err == nil {
 		t.Error("expected error for unknown URI, got nil")
 	}
@@ -44,7 +45,7 @@ func TestProvider_GetResourceContent(t *testing.T) {
 func TestProvider_CallTool_Greet(t *testing.T) {
 	p := &Provider{}
 
-	result, err := p.CallTool("greet", map[string]interface{}{"name": "Alice"})
+	result, err := p.CallTool(context.Background(), "greet", map[string]interface{}{"name": "Alice"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestProvider_CallTool_Greet(t *testing.T) {
 		t.Error("expected success result, got error")
 	}
 
-	result, err = p.CallTool("greet", map[string]interface{}{})
+	result, err = p.CallTool(context.Background(), "greet", map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestProvider_CallTool_Greet(t *testing.T) {
 
 func TestProvider_CallTool_Unknown(t *testing.T) {
 	p := &Provider{}
-	result, err := p.CallTool("does_not_exist", nil)
+	result, err := p.CallTool(context.Background(), "does_not_exist", nil)
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}

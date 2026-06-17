@@ -44,7 +44,7 @@ func (s *Server) AddProvider(p provider.Provider) {
 	for _, res := range resources {
 		r := res
 		s.mcpServer.AddResource(&r, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			content, err := p.GetResourceContent(req.Params.URI)
+			content, err := p.GetResourceContent(ctx, req.Params.URI)
 			if err != nil {
 				return nil, err
 			}
@@ -65,7 +65,7 @@ func (s *Server) AddProvider(p provider.Provider) {
 		for _, tmpl := range templates {
 			t := tmpl
 			s.mcpServer.AddResourceTemplate(&t, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-				content, err := p.GetResourceContent(req.Params.URI)
+				content, err := p.GetResourceContent(ctx, req.Params.URI)
 				if err != nil {
 					return nil, err
 				}
@@ -87,7 +87,7 @@ func (s *Server) AddProvider(p provider.Provider) {
 		for _, prompt := range prompts {
 			pr := prompt
 			s.mcpServer.AddPrompt(&pr, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-				return p.GetPrompt(req.Params.Name, req.Params.Arguments)
+				return p.GetPrompt(ctx, req.Params.Name, req.Params.Arguments)
 			})
 		}
 	}
@@ -109,7 +109,7 @@ func (s *Server) AddProvider(p provider.Provider) {
 					return result, nil
 				}
 			}
-			return p.CallTool(req.Params.Name, args)
+			return p.CallTool(ctx, req.Params.Name, args)
 		})
 	}
 }
@@ -158,8 +158,18 @@ func (s *Server) Run(ctx context.Context) error {
 			mcpHandler.ServeHTTP(w, r)
 		})
 
+		srv := &http.Server{Addr: ":" + port, Handler: handler}
+		go func() {
+			<-ctx.Done()
+			if err := srv.Shutdown(context.Background()); err != nil {
+				slog.Error("SSE server shutdown error", "err", err)
+			}
+		}()
 		slog.Info("Starting MCP server via SSE", "port", port)
-		return http.ListenAndServe(":"+port, handler)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
 	}
 
 	slog.Info("Starting MCP server via stdio")
