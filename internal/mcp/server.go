@@ -132,12 +132,23 @@ func (s *Server) Run(ctx context.Context) error {
 
 		mcpHandler := mcp.NewSSEHandler(func(req *http.Request) *mcp.Server {
 			return s.mcpServer
-		}, &mcp.SSEOptions{
-			DisableLocalhostProtection: true,
-		})
+		}, &mcp.SSEOptions{})
+
+		bearerToken := os.Getenv("MCP_BEARER_TOKEN")
+		// Restrict CORS to a specific origin in production via CORS_ALLOW_ORIGIN env var.
+		corsOrigin := os.Getenv("CORS_ALLOW_ORIGIN")
+		if corsOrigin == "" {
+			corsOrigin = "http://localhost:3000"
+		}
 
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			if bearerToken != "" && r.Method != "OPTIONS" {
+				if r.Header.Get("Authorization") != "Bearer "+bearerToken {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version")
 			if r.Method == "OPTIONS" {
