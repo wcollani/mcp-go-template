@@ -1,6 +1,6 @@
 module github.com/wcollani/mcp-go-template
 
-go 1.25.0
+go 1.26
 
 require github.com/modelcontextprotocol/go-sdk v1.6.0
 

@@ -20,9 +20,10 @@ import (
 // Mark required fields with "required": true at the property level (non-standard
 // shorthand) — NewTool promotes them to the top-level required array automatically.
 func NewTool(name, description string, inputSchema map[string]interface{}) *mcp.Tool {
-	properties := inputSchema
-	if properties == nil {
-		properties = map[string]interface{}{}
+	// Shallow copy so required-key removal never mutates the caller's map.
+	properties := make(map[string]interface{}, len(inputSchema))
+	for k, v := range inputSchema {
+		properties[k] = v
 	}
 
 	schema := map[string]interface{}{
@@ -35,7 +36,14 @@ func NewTool(name, description string, inputSchema map[string]interface{}) *mcp.
 		if propMap, ok := v.(map[string]interface{}); ok {
 			if req, ok := propMap["required"].(bool); ok && req {
 				required = append(required, k)
-				delete(propMap, "required")
+				// Copy before mutating so we don't modify the caller's map.
+				propCopy := make(map[string]interface{}, len(propMap))
+				for pk, pv := range propMap {
+					if pk != "required" {
+						propCopy[pk] = pv
+					}
+				}
+				properties[k] = propCopy
 			}
 		}
 	}

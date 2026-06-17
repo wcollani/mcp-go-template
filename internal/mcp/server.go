@@ -61,7 +61,9 @@ func (s *Server) AddProvider(p provider.Provider) {
 	}
 
 	templates, err := p.GetResourceTemplates()
-	if err == nil {
+	if err != nil {
+		slog.Warn("Failed to get resource templates from provider", "provider", p.Name(), "error", err)
+	} else {
 		for _, tmpl := range templates {
 			t := tmpl
 			s.mcpServer.AddResourceTemplate(&t, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -83,7 +85,9 @@ func (s *Server) AddProvider(p provider.Provider) {
 	}
 
 	prompts, err := p.GetPrompts()
-	if err == nil {
+	if err != nil {
+		slog.Warn("Failed to get prompts from provider", "provider", p.Name(), "error", err)
+	} else {
 		for _, prompt := range prompts {
 			pr := prompt
 			s.mcpServer.AddPrompt(&pr, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
