@@ -105,13 +105,16 @@ func (p *Provider) GetTools() ([]mcp.Tool, error) {
     }, nil
 }
 
-func (p *Provider) CallTool(name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (p *Provider) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
     switch name {
     case "restart_myservice":
         // call p.baseURL/restart
         return mcphelper.TextResult("My Service restarted successfully."), nil
     case "search_myservice":
-        query, _ := args["query"].(string)
+        query, ok := args["query"].(string)
+        if !ok || query == "" {
+            return mcphelper.ErrorResult(fmt.Errorf("query parameter is required")), nil
+        }
         // call p.baseURL/search?q=query
         return mcphelper.TextResult(fmt.Sprintf("Results for: %s", query)), nil
     default:
